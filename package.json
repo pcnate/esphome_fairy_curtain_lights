@@ -1,6 +1,6 @@
 {
   "name": "fairy_curtain_lights",
-  "version": "0.0.0-development",
+  "version": "1.0.0",
   "description": "ESPHome external component for two-channel phase-shifted PWM fairy curtain lights",
   "author": "Nathan Baker <pcnate@gmail.com>",
   "license": "MIT",
