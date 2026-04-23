@@ -1,0 +1,44 @@
+name: Back-merge master into development
+
+on:
+  workflow_run:
+    workflows: [ Release ]
+    types: [ completed ]
+    branches: [ master ]
+
+jobs:
+  backmerge:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch branches
+        run: git fetch origin master development
+
+      - name: Check for diff
+        id: diff
+        run: |
+          COUNT=$(git rev-list --count origin/development..origin/master)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Open or reuse back-merge PR and auto-merge
+        if: steps.diff.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh pr list --base development --head master --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING" ]; then
+            gh pr create --base development --head master \
+              --title "chore: back-merge master into development" \
+              --body "Automated back-merge after stable release."
+            EXISTING=$(gh pr list --base development --head master --state open --json number --jq '.[0].number // empty')
+          fi
+          if [ -n "$EXISTING" ]; then
+            gh pr merge "$EXISTING" --auto --merge || echo "Auto-merge unavailable; PR left open for manual review"
+          fi

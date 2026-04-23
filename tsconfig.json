@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "module": "commonjs",
+    "target": "es2020",
+    "esModuleInterop": true,
+    "types": [ "node" ]
+  },
+  "include": [ "bin/**/*.ts" ]
+}

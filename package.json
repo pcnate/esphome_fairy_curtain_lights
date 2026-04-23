@@ -1,0 +1,22 @@
+{
+  "name": "fairy_curtain_lights",
+  "version": "0.0.0-development",
+  "description": "ESPHome external component for two-channel phase-shifted PWM fairy curtain lights",
+  "author": "Nathan Baker <pcnate@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "config:esphome": "docker run --rm -v \"%cd%:/config\" ghcr.io/esphome/esphome config /config/examples/curtain-lights-dev.yaml",
+    "build:esphome": "docker run --rm -v \"%cd%:/config\" ghcr.io/esphome/esphome compile /config/examples/curtain-lights-dev.yaml",
+    "upload:esphome": "ts-node bin/upload-esphome.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3",
+    "semantic-release": "^25.0.3",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1"
+  }
+}

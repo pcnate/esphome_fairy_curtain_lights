@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    branches: [ master, development ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      new-version: ${{ steps.bump.outputs.new-version }}
+      new-version-created: ${{ steps.bump.outputs.new-version-created }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Semantic release
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD=$(node -p "require('./package.json').version")
+          npx semantic-release | tee release.log
+          NEW=$(node -p "require('./package.json').version")
+          echo "new-version=$NEW" >> "$GITHUB_OUTPUT"
+          if [ "$OLD" != "$NEW" ]; then
+            echo "new-version-created=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "new-version-created=false" >> "$GITHUB_OUTPUT"
+          fi

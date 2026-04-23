@@ -1,0 +1,35 @@
+name: PR
+
+on:
+  pull_request:
+    branches: [ master, development ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck helper scripts
+        run: npm run typecheck
+
+      - name: Stage dev YAML and dummy secrets for esphome validate
+        run: |
+          cp examples/curtain-lights-dev.yaml.example examples/curtain-lights-dev.yaml
+          cat > examples/secrets.yaml <<'EOF'
+          wifi_ssid: "ci-dummy"
+          wifi_password: "ci-dummy-password"
+          api_encryption_key: "kZ3mKQ6O8jD4s5pR2uY9vH8wL1xJ7aE0gT6fUcBnMpQ="
+          ota_password: "ci-dummy-ota"
+          ap_fallback_password: "ci-dummy-ap"
+          EOF
+
+      - name: Validate example YAML
+        run: docker run --rm -v "$PWD:/config" ghcr.io/esphome/esphome config /config/examples/curtain-lights-dev.yaml

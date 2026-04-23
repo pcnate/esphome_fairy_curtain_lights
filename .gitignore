@@ -1,0 +1,12 @@
+node_modules/
+.esphome/
+.pio/
+.claude/
+.env
+**/secrets.yaml
+examples/curtain-lights-dev.yaml
+*.log
+
+# Python
+__pycache__/
+*.py[cod]

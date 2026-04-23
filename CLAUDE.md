@@ -38,10 +38,28 @@ Header-only component. `FairyCurtainLights` owns two inner-class
 achieve the 180° shift. The timer is configured in the constructor; channels
 configure themselves in `setup()`.
 
-**`fairy_curtain_lights.cpp` is a stale duplicate** of the header — same class
-redefined, does not `#include` the header, and is not how ESPHome builds this.
-Changes to behavior must go in the `.h`. If you touch this file, reconcile or
-delete it rather than editing both.
+Split into the canonical **declaration/definition** pattern:
+`fairy_curtain_lights.h` holds the class declaration and method signatures
+(plus trivial inline accessors like `get_channel_a()`);
+`fairy_curtain_lights.cpp` holds the out-of-line method implementations and
+starts with `#include "fairy_curtain_lights.h"`. Never redeclare the class in
+the `.cpp` — ESPHome/PlatformIO sweeps every `.cpp` in the component directory
+and the class is already visible via the header, so a redeclaration produces
+an ODR violation / "redefinition of class" error.
+
+**Inner class gotcha:** `ShiftedPWM : public output::FloatOutput` — the base
+class's virtual methods are `write_state()` only. `ShiftedPWM::setup()` is
+**not** an override (there's no virtual `setup()` in the `FloatOutput` chain);
+`FairyCurtainLights::setup()` calls it explicitly. Do not mark
+`ShiftedPWM::setup()` with `override` in the declaration — the compiler will
+reject it.
+
+## Repository layout
+
+Canonical ESPHome external-component structure: source files live at
+`components/fairy_curtain_lights/` (not at the repo root). The folder name is
+snake_case, matches the YAML key users write in their config, and matches the
+C++ namespace — all three must stay in sync.
 
 ## When editing
 
@@ -62,3 +80,75 @@ Global style rules in `~/.claude/CLAUDE.md` apply (spaces inside `( )`, `[ ]`,
 `{ }` when non-empty; JSDoc on functions; etc.). The `.h` already follows this
 style; `__init__.py` is inconsistent and `.cpp` does not follow it — match the
 `.h` when editing, and prefer fixing drift over preserving it.
+
+## Dev loop
+
+`examples/curtain-lights-dev.yaml.example` is a template for a self-contained
+ESPHome device config that pulls the component via `external_components: -
+source: { type: local, path: ../components }`. The working copy
+(`examples/curtain-lights-dev.yaml`) is **gitignored** — each developer keeps
+their own tweaked version locally without polluting history. CI stages a
+throw-away copy from the `.example` before running `esphome config`.
+
+To set up locally:
+
+```bash
+cp examples/curtain-lights-dev.yaml.example examples/curtain-lights-dev.yaml
+cp examples/secrets.yaml.example examples/secrets.yaml   # fill in real values
+cp .env.example .env                                      # set ESPHOME_DEVICE_IP
+```
+
+Then:
+
+- `npm run config:esphome` — static validation via the ESPHome Docker image
+- `npm run build:esphome` — compile firmware into `examples/.esphome/build/curtain-lights-dev/` (ESPHome writes its build tree next to the YAML, not at config root)
+- `npm run upload:esphome` — OTA flash the resulting `.ota.bin` to the device
+  via a multipart POST to `http://<ip>/update` (see `bin/upload-esphome.ts`)
+- `npm run typecheck` — TS typecheck the helper scripts; this is what PR CI
+  runs
+
+The Docker-based ESPHome invocations use Windows-style `%cd%` for local dev; CI
+calls the `docker run ... -v "$PWD:/config" ghcr.io/esphome/esphome ...`
+incantation directly with POSIX paths.
+
+The `DEVICE_NAME` constant at the top of `upload-esphome.ts` must match the
+`esphome: name:` field in `curtain-lights-dev.yaml` — both halves of the
+firmware path
+(`examples/.esphome/build/<name>/.pioenvs/<name>/firmware.ota.bin`) derive
+from it.
+
+## CI/CD
+
+Two long-lived branches: `master` cuts stable releases, `development` cuts
+`-rc.N` prereleases. Semantic-release reads conventional-commit messages to
+decide version bumps and changelog entries. Three workflows:
+
+- `release.yml` — runs on push to `master`/`development`; runs `npm ci` then
+  `npx semantic-release`, exposes `new-version` / `new-version-created` outputs
+  for any future downstream jobs to gate on
+- `pr.yml` — runs on PRs; typecheck + `esphome config` against the example YAML
+  (writes dummy secrets inline for validation)
+- `backmerge.yml` — fires on successful `Release` workflow runs on `master`;
+  opens (or reuses) a PR from `master` → `development` and enables auto-merge.
+  Idempotent via `gh pr list` check
+
+`.releaserc.json` uses the standard commit-analyzer → release-notes-generator
+→ changelog → npm (with `npmPublish: false`) → github → git plugin chain. No
+release assets are attached — users consume this repo by pinning a git ref
+in their `external_components:` source, so the tag itself is the deliverable.
+No `@semantic-release/exec` / `update:version-h` stamping is wired up; if you
+ever want the component to self-report a version, add it as a new plugin step
+and list the generated file in `@semantic-release/git.assets`.
+
+**GitHub repo settings required for full functionality** (configure in the web UI):
+
+1. *Actions → General → Workflow permissions*: "Read and write" + "Allow
+   GitHub Actions to create and approve pull requests" (needed by
+   `backmerge.yml`)
+2. *General → Pull Requests*: "Allow auto-merge" (needed by `gh pr merge
+   --auto` in `backmerge.yml`)
+3. If you add branch protection on `development` that requires `pr.yml` to
+   pass: PRs opened by `GITHUB_TOKEN` don't trigger other workflows, so the
+   back-merge PR will stall. Fix by either not requiring `pr.yml` on
+   `development`, or by switching `backmerge.yml` to a fine-grained PAT
+   (`BACKMERGE_TOKEN`) with `Pull requests: Read and write` + `Contents: Read`.
