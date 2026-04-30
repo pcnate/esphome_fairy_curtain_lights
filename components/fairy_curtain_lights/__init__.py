@@ -3,6 +3,8 @@ import esphome.config_validation as cv
 from esphome.components import output
 from esphome.const import CONF_ID, CONF_FREQUENCY, CONF_OUTPUT_ID, CONF_PIN
 
+AUTO_LOAD = ["output"]
+
 fairy_ns = cg.esphome_ns.namespace("fairy_curtain_lights")
 FairyCurtainLights = fairy_ns.class_("FairyCurtainLights", cg.Component)
 

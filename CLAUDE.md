@@ -30,8 +30,8 @@ the C++ object and registers `get_channel_a()` / `get_channel_b()` as two
 `FloatOutput`s that the user can reference from their `light:` / `output:`
 blocks.
 
-**C++ side — `fairy_curtain_lights.h`**
-Header-only component. `FairyCurtainLights` owns two inner-class
+**C++ side — `fairy_curtain_lights.h` + `fairy_curtain_lights.cpp`**
+`FairyCurtainLights` owns two inner-class
 `ShiftedPWM : output::FloatOutput` instances on `LEDC_CHANNEL_0` and
 `LEDC_CHANNEL_1`, both bound to `LEDC_TIMER_0` at 13-bit resolution
 (`MAX_DUTY = 8191`). Channel B is constructed with `hpoint = MAX_DUTY / 2` to
@@ -54,6 +54,46 @@ class's virtual methods are `write_state()` only. `ShiftedPWM::setup()` is
 `ShiftedPWM::setup()` with `override` in the declaration — the compiler will
 reject it.
 
+## Hardware safety invariant
+
+The two channels **must never be high at the same instant** — they feed
+opposite polarities of an AC-style bridge, and simultaneous high means
+short-through. Three layers of enforcement hold this:
+
+1. **Duty cap per channel.** `write_state()` scales input by `MAX_DUTY / 2`,
+   which with `MAX_DUTY = 8191` yields `4095` (integer division). Since
+   `FloatOutput` guarantees `state ∈ [0, 1]`, each channel's duty is always
+   ≤ 4095 out of the 8192-tick period (≈ 49.988%).
+2. **Phase offset.** Channel A has `hpoint = 0` (high through tick 4094 at
+   max duty); channel B has `hpoint = MAX_DUTY / 2 = 4096` (high through
+   tick 8190 at max duty). Two dead ticks per cycle separate the handoffs
+   (at tick 4095 and at tick 8191).
+3. **Timer-shared atomic update.** Both channels bind to `LEDC_TIMER_0`, so
+   their periods are lock-step. `ledc_update_duty()` latches new duty at the
+   next period boundary, not mid-cycle — rapid back-to-back writes to A
+   and B appear as a single atomic transition in hardware.
+
+**Load-bearing constant:** `MAX_DUTY = 8191` (not `8192`) exists to keep
+the two dead ticks around each handoff. Using `8192`, or "simplifying"
+`MAX_DUTY / 2` to `4096`, would make A's falling edge and B's rising edge
+land on the same tick — digitally non-overlapping, but real GPIO edges,
+MOSFET gate delay, and PCB parasitics produce a measurable overlap window
+in that case. Do not "fix" either constant.
+
+**Future features that break the 50% cap:** any config mode, effect, or
+runtime path that lets one channel exceed 4095 (because the other is forced
+to zero — e.g. a `solo_a` / `solo_b` mode) must sequence the transition
+*inside the component*:
+
+1. Write the inactive channel's duty to 0 via `ledc_update_duty()`.
+2. Wait at least one full LEDC period so the zero latches (≈1 ms at 1 kHz,
+   but compute from the configured `frequency`).
+3. Only then raise the active channel above 4095.
+
+Reversing the order, or relying on YAML automations to do the sequencing,
+reintroduces a guaranteed overlap window during the transition cycle. This
+ordering must live in C++, not in user YAML.
+
 ## Repository layout
 
 Canonical ESPHome external-component structure: source files live at
@@ -68,8 +108,9 @@ C++ namespace — all three must stay in sync.
 - `LEDC_TIMER_0` and `LEDC_CHANNEL_0/1` are hard-coded. If the user's YAML also
   uses `ledc`-based outputs elsewhere, channel/timer collisions are the likely
   culprit — don't assume the component is broken.
-- The `MAX_DUTY / 2` scaling in `write_state()` is deliberate (see above), not a
-  bug. Do not "fix" it to `MAX_DUTY`.
+- The `MAX_DUTY / 2` scaling in `write_state()` and `MAX_DUTY = 8191` are
+  load-bearing — see the "Hardware safety invariant" section. Do not "fix"
+  either.
 - ESP-IDF LEDC APIs (`ledc_timer_config`, `ledc_channel_config`, `ledc_set_duty`,
   `ledc_update_duty`) are used directly rather than ESPHome's `ledc` output —
   that's intentional because ESPHome's wrapper does not expose `hpoint`.

@@ -80,3 +80,13 @@ light:
     name: "Board RGB LED"
     id: board_led
     restore_mode: ALWAYS_OFF
+
+  - platform: monochromatic
+    name: "Fairy A"
+    id: fairy_a
+    output: pwm_out_a
+
+  - platform: monochromatic
+    name: "Fairy B"
+    id: fairy_b
+    output: pwm_out_b
